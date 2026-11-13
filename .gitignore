@@ -1,7 +1,12 @@
-.venv/
+usr/
 __pycache__/
 *.pyc
-data/shape.db
+.venv/
 .env
+data/shape.db
+data/*.db-wal
+data/*.db-shm
 assets/sprites/*.png
+.DS_Store
+Thumbs.db
 .ipynb_checkpoints/
