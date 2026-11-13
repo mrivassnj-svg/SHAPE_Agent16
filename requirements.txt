@@ -1,0 +1,12 @@
+# Core LLM — Groq (FREE tier, no credit card required)
+# Sign up at https://console.groq.com to get a free API key (starts with gsk_...)
+groq>=0.9.0
+
+# Gradio web UI (Chat + Lesson Builder tabs)
+gradio>=4.36.0
+
+# Standard library modules used (no install needed):
+#   sqlite3, ast, re, threading, uuid, json, io, textwrap, argparse, os, sys
+
+# Optional — load .env file for GROQ_API_KEY during development
+python-dotenv>=1.0.0
