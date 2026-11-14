@@ -5,6 +5,10 @@ groq>=0.9.0
 # Gradio web UI (Chat + Lesson Builder tabs)
 gradio>=4.36.0
 
+# RPG UI
+streamlit>=1.35.0
+streamlit-autorefresh>=1.0.1
+
 # Standard library modules used (no install needed):
 #   sqlite3, ast, re, threading, uuid, json, io, textwrap, argparse, os, sys
 

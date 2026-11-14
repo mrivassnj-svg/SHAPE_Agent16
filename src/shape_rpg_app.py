@@ -30,6 +30,7 @@ import os
 from pathlib import Path
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 _SRC = Path(__file__).parent
@@ -285,6 +286,12 @@ body { background-color: #1a1a2e; color: #eee; }
 
 
 # ── Session state init ────────────────────────────────────────────────────────
+
+# How long (ms) to show the hit/attack animation before resetting to idle.
+# The longest animation is enemy-death at 1.1s — 1400ms gives it breathing room.
+_ANIM_HOLD_MS  = 1400
+# How often (ms) the idle battle scene cycles to keep the float animation live.
+_IDLE_CYCLE_MS = 2000
 
 def _init_state() -> None:
     defaults = {
@@ -574,6 +581,33 @@ def screen_zone_select() -> None:
 # SCREEN: BATTLE  (with animations)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _battle_autorefresh(anim: str) -> None:
+    """
+    Non-blocking auto-refresh using streamlit-autorefresh.
+
+    - After an action animation fires: refresh every _ANIM_HOLD_MS once,
+      which lets the CSS animation play out, then we reset anim→idle on
+      the next rerun.
+    - During idle: refresh every _IDLE_CYCLE_MS so the floating animation
+      keeps cycling and the battle stays live.
+
+    Uses st_autorefresh which fires an async rerun without blocking the
+    server thread — clicks remain responsive during the interval.
+    """
+    if anim in ("win", "loss", "fled"):
+        return   # battle over — no more refreshes
+
+    interval = _ANIM_HOLD_MS if anim != "idle" else _IDLE_CYCLE_MS
+    # limit=1 on action animations so they don't loop; limit=0 (unlimited) on idle
+    limit = 1 if anim != "idle" else 0
+    count = st_autorefresh(interval=interval, limit=limit if limit > 0 else None,
+                            key=f"ar_{anim}")
+
+    # When the action animation refresh fires (count becomes 1), reset to idle
+    if anim != "idle" and count and count >= 1:
+        S["anim"] = "idle"
+
+
 def screen_battle() -> None:
     battle: BattleState = S["battle"]
     player = get_player(S["player_id"])
@@ -751,6 +785,12 @@ def screen_battle() -> None:
             unsafe_allow_html=True,
         )
         _hp_bar(battle.enemy_hp, battle.enemy_max_hp, color="#e74c3c")
+
+    # ── Auto-refresh loop — keeps animations cycling ──────────────────────────
+    # Called after all UI is rendered so the page draws first, then sleeps.
+    # Skipped when battle is already over.
+    if battle.outcome == "ongoing":
+        _battle_autorefresh(anim)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
