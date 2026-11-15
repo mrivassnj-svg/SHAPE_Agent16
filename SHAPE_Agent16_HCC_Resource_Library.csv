@@ -1,0 +1,13 @@
+resource,topic,url,learning_pathway_step,notes,downloaded_material_or_summary,source_attribution
+DL Intro,Deep Learning Introduction,https://eagleonline.hccs.edu/courses/340456/modules/items/24356286,1 Deep learning foundations,HCC login may be required; content not extracted.,,
+DL Toolkit,Deep Learning Toolkit,https://eagleonline.hccs.edu/courses/340456/modules/items/24356292,1 Deep learning foundations,HCC login may be required; content not extracted.,,
+NN Basics,Neural Network Basics,https://eagleonline.hccs.edu/courses/340456/modules/items/24356301,2 Neural networks and CNNs,HCC login may be required; content not extracted.,,
+CNN,Convolutional Neural Networks,https://eagleonline.hccs.edu/courses/340456/modules/items/25011377,2 Neural networks and CNNs,HCC login may be required; content not extracted.,,
+Sequence Modeling and NLP,Sequence Modeling and Natural Language Processing,https://eagleonline.hccs.edu/courses/340456/modules/items/24356319,3 Sequence modeling and NLP,HCC login may be required; content not extracted.,,
+Applications of Transformers and Attention Mechanics,Transformers and Attention,https://eagleonline.hccs.edu/courses/340456/modules/items/24356329,4 Transformers and attention,HCC login may be required; content not extracted.,,
+Autoencoders and Applied Variational (VAEs),Autoencoders and VAEs,https://eagleonline.hccs.edu/courses/340456/modules/items/25301433,5 Autoencoders and generative models,HCC login may be required; content not extracted.,,
+Generative Adversarial Networks GANs,GANs,https://eagleonline.hccs.edu/courses/340456/modules/items/24356349,5 Autoencoders and generative models,HCC login may be required; content not extracted.,,
+Gen AI with Diffusion Models,Diffusion Models,https://eagleonline.hccs.edu/courses/340456/modules/items/24356356,6 Diffusion models,HCC login may be required; content not extracted.,,
+Reinforcement Learning in AI Agents,Reinforcement Learning,https://eagleonline.hccs.edu/courses/340456/modules/items/24356369,7 Reinforcement learning,HCC login may be required; content not extracted.,,
+Advanced Agents and Reasoning Models,Advanced Agents,https://eagleonline.hccs.edu/courses/340456/modules/items/24356381,8 Advanced agents/reasoning/planning/orchestration,HCC login may be required; content not extracted.,,
+Agent Planning and Orchestration,Agent Planning,https://eagleonline.hccs.edu/courses/340456/modules/items/24356400,8 Advanced agents/reasoning/planning/orchestration,HCC login may be required; content not extracted.,,

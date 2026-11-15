@@ -1,0 +1,7 @@
+# SHAPE Agent 16 — Python dependencies
+# Install in Colab with: pip install -r requirements.txt
+# Only the libraries the notebook actually uses are listed here.
+gradio>=6.0,<7.0
+pandas>=2.0,<3.0
+matplotlib>=3.8,<4.0
+numpy>=1.26,<2.0

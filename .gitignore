@@ -1,0 +1,8 @@
+# SHAPE Agent 16
+.env
+__pycache__/
+*.db
+*.pyc
+.ipynb_checkpoints/
+outputs/
+venv/
