@@ -152,27 +152,37 @@ def glow_circle(img: Image.Image, cx: int, cy: int, r: int,
                 color: tuple, alpha: float = 1.0) -> None:
     if alpha <= 0.01:
         return
-    ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    d  = ImageDraw.Draw(ov)
+    # Operate on a small crop instead of a full 1920×1080 overlay.
+    margin = r + 56
+    bx1, by1 = max(0, cx - margin), max(0, cy - margin)
+    bx2, by2 = min(W, cx + margin), min(H, cy + margin)
+    crop = Image.new("RGBA", (bx2 - bx1, by2 - by1), (0, 0, 0, 0))
+    d    = ImageDraw.Draw(crop)
+    ox, oy = cx - bx1, cy - by1
     for step in range(6, 0, -1):
         rad = r + step * 9
         a   = int(16 * alpha * (7 - step) / 6)
-        d.ellipse((cx-rad, cy-rad, cx+rad, cy+rad), fill=(*color, a))
-    d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(*color, int(195 * alpha)))
-    img.alpha_composite(ov)
+        d.ellipse((ox-rad, oy-rad, ox+rad, oy+rad), fill=(*color, a))
+    d.ellipse((ox-r, oy-r, ox+r, oy+r), fill=(*color, int(195 * alpha)))
+    img.alpha_composite(crop, dest=(bx1, by1))
 
 def panel_rect(img: Image.Image, x1: int, y1: int, x2: int, y2: int,
                color: tuple = PANEL, alpha: float = 1.0,
                border_color: tuple | None = None, border_w: int = 2) -> None:
     if alpha <= 0.01:
         return
-    ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    d  = ImageDraw.Draw(ov)
-    d.rectangle((x1, y1, x2, y2), fill=(*color, int(230 * alpha)))
+    # Operate on a crop sized exactly to the panel.
+    px1, py1 = max(0, x1), max(0, y1)
+    px2, py2 = min(W, x2), min(H, y2)
+    crop = Image.new("RGBA", (px2 - px1, py2 - py1), (0, 0, 0, 0))
+    d    = ImageDraw.Draw(crop)
+    rx1, ry1 = x1 - px1, y1 - py1
+    rx2, ry2 = x2 - px1, y2 - py1
+    d.rectangle((rx1, ry1, rx2, ry2), fill=(*color, int(230 * alpha)))
     if border_color:
-        d.rectangle((x1, y1, x2, y2),
+        d.rectangle((rx1, ry1, rx2, ry2),
                     outline=(*border_color, int(200 * alpha)), width=border_w)
-    img.alpha_composite(ov)
+    img.alpha_composite(crop, dest=(px1, py1))
 
 def accent_bar_v(draw: ImageDraw.Draw, x: int, y1: int, y2: int,
                  color: tuple = ACCENT, width: int = 5) -> None:
@@ -197,80 +207,84 @@ def orbit_dot(img: Image.Image, cx: int, cy: int, orbit_r: int,
 # NARRATION BAR — karaoke-style word-by-word reveal
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Pre-computed narration layout cache: narration_text → (all_words, line_breaks)
+_NAR_CACHE: dict[str, tuple[list[str], list[int]]] = {}
+
+def _nar_layout(narration: str) -> tuple[list[str], list[int]]:
+    """Return (word_list, line_break_indices) — computed once per unique narration."""
+    if narration in _NAR_CACHE:
+        return _NAR_CACHE[narration]
+    nf    = font(32)
+    dummy = ImageDraw.Draw(Image.new("RGBA", (W, 40)))
+    words = narration.split()
+    breaks: list[int] = []   # word index where a new line starts
+    cur   = ""
+    line_count = 0
+    for i, w in enumerate(words):
+        test = (cur + " " + w).strip()
+        bbox = dummy.textbbox((0, 0), test, font=nf)
+        if bbox[2] - bbox[0] > W - 160:
+            breaks.append(i)
+            cur = w
+            line_count += 1
+            if line_count >= 2:   # max 2 lines
+                break
+        else:
+            cur = test
+    result = (words, breaks)
+    _NAR_CACHE[narration] = result
+    return result
+
+
 def draw_narration(img: Image.Image, narration: str, frame_in_slide: int,
                    slide_duration: int) -> None:
     """
-    Reveal the narration text word-by-word across the slide's duration.
-    Spoken words appear in WHITE; upcoming words stay in DIM.
-    Two lines max, centered in the narration bar.
+    Word-by-word karaoke reveal — no full-frame overlays, no mask images.
+    Revealed words drawn in WHITE directly; pending words in dim GREY.
     """
     draw  = ImageDraw.Draw(img)
-    words = narration.split()
+    words, breaks = _nar_layout(narration)
     if not words:
         return
 
-    nf    = font(32)
-    # How many words to reveal at this frame
-    # Reserve the first 8 frames for slide-in animations, then reveal words
+    nf           = font(32)
     reveal_start = 8
     reveal_dur   = max(slide_duration - reveal_start - 12, 1)
-    words_shown  = int(len(words) * min(1.0, (frame_in_slide - reveal_start) / reveal_dur))
-    words_shown  = max(0, min(words_shown, len(words)))
+    shown        = int(len(words) * min(1.0,
+                        max(0.0, (frame_in_slide - reveal_start) / reveal_dur)))
 
-    # Lay out into two lines
-    def layout(word_list: list[str]) -> list[str]:
-        lines: list[str] = []
-        cur = ""
-        for w in word_list:
-            test = (cur + " " + w).strip()
-            bbox = draw.textbbox((0, 0), test, font=nf)
-            if bbox[2] - bbox[0] > W - 160:
-                lines.append(cur)
-                cur = w
-            else:
-                cur = test
-        if cur:
-            lines.append(cur)
-        return lines[:2]
+    # Split words into at most 2 display lines
+    line_words: list[list[str]] = []
+    prev = 0
+    for br in breaks[:1]:       # only one break allowed → 2 lines max
+        line_words.append(words[prev:br])
+        prev = br
+    line_words.append(words[prev:])
+    line_words = line_words[:2]
 
-    all_lines  = layout(words)
-    done_lines = layout(words[:words_shown])
+    y_base  = VH + 22
+    line_h  = 52
+    word_i  = 0   # global word counter across lines
 
-    y_base = VH + 20
-    line_h = 52
+    for li, lwords in enumerate(line_words):
+        line_text = " ".join(lwords)
+        bbox      = draw.textbbox((0, 0), line_text, font=nf)
+        line_w    = bbox[2] - bbox[0]
+        x_start   = (W - line_w) // 2
+        y         = y_base + li * line_h
 
-    for li, line in enumerate(all_lines):
-        # Draw dim (upcoming) text
-        bbox = draw.textbbox((0, 0), line, font=nf)
-        tw   = bbox[2] - bbox[0]
-        x    = (W - tw) // 2
-        y    = y_base + li * line_h
-        draw.text((x, y), line, font=nf, fill=(*GREY, 90))
+        # Draw word by word so we can colour each independently
+        x_cursor = x_start
+        for w in lwords:
+            wb    = draw.textbbox((0, 0), w, font=nf)
+            ww    = wb[2] - wb[0]
+            color = WHITE if word_i < shown else GREY
+            alpha = 255   if word_i < shown else 70
+            draw.text((x_cursor, y), w, font=nf, fill=(*color, alpha))
+            x_cursor += ww + draw.textbbox((0,0)," ",font=nf)[2]
+            word_i += 1
 
-    for li, line in enumerate(done_lines):
-        # Overlay revealed (spoken) text in white
-        bbox = draw.textbbox((0, 0), all_lines[li] if li < len(all_lines) else line,
-                             font=nf)
-        full_w = bbox[2] - bbox[0]
-        x_base = (W - full_w) // 2
-        y      = y_base + li * line_h
-
-        # Measure how much of this line is revealed
-        revealed_w_in_line = draw.textbbox((0, 0), line, font=nf)[2]
-        # Clip to only the revealed portion
-        clip_box = (x_base, y, x_base + revealed_w_in_line + 4, y + line_h - 4)
-        ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(ov).text((x_base, y),
-                                all_lines[li] if li < len(all_lines) else line,
-                                font=nf, fill=(*WHITE, 255))
-        # Mask: only show up to revealed width
-        mask = Image.new("L", img.size, 0)
-        ImageDraw.Draw(mask).rectangle(clip_box, fill=255)
-        ov.putalpha(mask)
-        img.alpha_composite(ov)
-
-    # Slide label (small, top-left of narration bar)
-    draw.text((20, VH + 8), "▶ SHAPE Agent 16", font=font(20), fill=(*ACCENT, 120))
+    draw.text((20, VH + 8), "▶ SHAPE Agent 16", font=font(20), fill=(*ACCENT, 110))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
