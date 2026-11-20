@@ -1186,11 +1186,32 @@ def main() -> None:
     write_srt()
 
     print(f"\n✅  Scene built.  Total frames: {TOTAL_FRAMES}  ({TOTAL_FRAMES / FPS:.0f} s)")
-    print("   Render all frames:  Render → Render Animation  (Ctrl+F12)")
-    print("   Or headless:  blender --background scene.blend --render-anim")
-    print("   Then assemble with ffmpeg:")
-    print("     ffmpeg -framerate 24 -i render/frames/%04d.png \\")
-    print("            -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
+
+    # ── Render all frames inline when running headless ────────────────────────
+    # bpy.app.background is True when Blender was launched with --background.
+    # In that mode there is no GUI, so we render every frame here and exit.
+    # In GUI mode (Scripting tab) we skip this so the user can preview first,
+    # then trigger Render → Render Animation manually (Ctrl+F12).
+    if bpy.app.background:
+        scene = bpy.context.scene
+        print(f"\n  Rendering {TOTAL_FRAMES} frames to {OUT_DIR} …")
+        print("  (this will take a while — one line per frame)\n")
+        for frame in range(scene.frame_start, scene.frame_end + 1):
+            scene.frame_set(frame)
+            scene.render.filepath = str(OUT_DIR / f"{frame:04d}")
+            bpy.ops.render.render(write_still=True)
+            if frame % 24 == 0:
+                pct = 100.0 * frame / TOTAL_FRAMES
+                print(f"  frame {frame:4d} / {TOTAL_FRAMES}  ({pct:.0f} %)")
+        print(f"\n✅  All frames rendered to: {OUT_DIR}")
+        print("\n  Assemble with ffmpeg:")
+        print("    ffmpeg -framerate 24 -i render/frames/%04d.png \\")
+        print("           -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
+    else:
+        print("   GUI mode: press Ctrl+F12 to render all frames.")
+        print("   Then assemble with:")
+        print("     ffmpeg -framerate 24 -i render/frames/%04d.png \\")
+        print("            -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
 
 
 main()
