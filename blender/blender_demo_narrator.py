@@ -144,28 +144,40 @@ def clear_scene() -> None:
 def configure_render() -> None:
     scene = bpy.context.scene
 
-    # EEVEE Next — GPU rasterizer, 50-100x faster than Cycles for this scene.
-    # Every material in this animation is pure emission (text, glows, panels) —
-    # no glass, no subsurface, no complex BSDFs — so EEVEE is visually identical
-    # to Cycles and renders a 1920×1080 frame in ~0.5 s on integrated GPU vs
-    # ~15 s per frame with Cycles. 2400 frames goes from ~10 hours to ~20 min.
-    #
-    # RENDER_ENGINE values:
-    #   "BLENDER_EEVEE_NEXT"  — Blender 4.2+/5.x  (use this)
-    #   "BLENDER_EEVEE"       — Blender 3.x and earlier
-    #   "CYCLES"              — path tracer (slow, not needed here)
-    engine = "BLENDER_EEVEE_NEXT"
-    if not hasattr(bpy.context.scene, "eevee"):
-        engine = "BLENDER_EEVEE"   # older Blender fallback
-    scene.render.engine = engine
+    # Try EEVEE engine names in preference order.
+    # Blender 5.x reports "BLENDER_EEVEE" in its enum even though the engine
+    # is EEVEE Next internally.  "BLENDER_EEVEE_NEXT" was used in Blender 4.2
+    # dev builds but was never the stable enum string.
+    # Probe the allowed values directly so we never guess.
+    allowed = set(scene.bl_rna.properties["render"].enum_items_static_ui.keys()
+                  if hasattr(scene.bl_rna.properties.get("render", None), "enum_items_static_ui")
+                  else [])
+    for candidate in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "CYCLES"):
+        try:
+            scene.render.engine = candidate
+            engine = candidate
+            break
+        except TypeError:
+            continue
+    else:
+        engine = scene.render.engine   # leave whatever is already set
+    print(f"  Render engine: {engine}")
 
-    # EEVEE quality settings — high enough for emission-only content
+    # EEVEE quality settings (attribute names differ between versions)
     if hasattr(scene, "eevee"):
-        scene.eevee.taa_render_samples  = 16   # temporal AA passes (16 is clean)
-        scene.eevee.use_bloom           = True  # makes glowing emission pop
-        scene.eevee.bloom_intensity     = 0.05
-        scene.eevee.bloom_radius        = 4.0
-        scene.eevee.use_gtao            = False # no ambient occlusion needed
+        eevee = scene.eevee
+        for attr, val in [
+            ("taa_render_samples", 16),
+            ("use_bloom",          True),
+            ("bloom_intensity",    0.05),
+            ("bloom_radius",       4.0),
+            ("use_gtao",           False),
+        ]:
+            if hasattr(eevee, attr):
+                try:
+                    setattr(eevee, attr, val)
+                except Exception:
+                    pass
 
     scene.render.resolution_x           = RENDER_W
     scene.render.resolution_y           = RENDER_H
