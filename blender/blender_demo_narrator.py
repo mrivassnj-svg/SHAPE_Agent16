@@ -159,8 +159,12 @@ def configure_render() -> None:
 
 def set_world_background() -> None:
     world = bpy.context.scene.world
-    world.use_nodes = True
-    bg = world.node_tree.nodes["Background"]
+    # Blender 5.x: use_nodes is deprecated; node_tree is always present.
+    if hasattr(world, "use_nodes"):
+        world.use_nodes = True
+    bg = world.node_tree.nodes.get("Background")
+    if bg is None:
+        bg = world.node_tree.nodes.new("ShaderNodeBackground")
     bg.inputs["Color"].default_value   = (*C_BG, 1.0)
     bg.inputs["Strength"].default_value = 1.0
 
@@ -169,11 +173,17 @@ def set_world_background() -> None:
 # UTILITY: material helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _ensure_nodes(m: bpy.types.Material) -> None:
+    """Enable node-based shading on a material (Blender 4 and 5 compatible)."""
+    if hasattr(m, "use_nodes"):
+        m.use_nodes = True
+
+
 def mat_emission(name: str, color: tuple, strength: float = 3.0) -> bpy.types.Material:
     if name in bpy.data.materials:
         return bpy.data.materials[name]
     m = bpy.data.materials.new(name)
-    m.use_nodes = True
+    _ensure_nodes(m)
     nodes = m.node_tree.nodes
     links = m.node_tree.links
     nodes.clear()
@@ -191,8 +201,10 @@ def mat_bsdf(name: str, color: tuple, metallic: float = 0.0,
     if name in bpy.data.materials:
         return bpy.data.materials[name]
     m = bpy.data.materials.new(name)
-    m.use_nodes = True
-    bsdf = m.node_tree.nodes["Principled BSDF"]
+    _ensure_nodes(m)
+    bsdf = m.node_tree.nodes.get("Principled BSDF")
+    if bsdf is None:
+        bsdf = m.node_tree.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.inputs["Base Color"].default_value = (*color[:3], 1.0)
     bsdf.inputs["Metallic"].default_value   = metallic
     bsdf.inputs["Roughness"].default_value  = roughness
@@ -318,9 +330,34 @@ def kf_hide(obj, frame: int, hidden: bool) -> None:
 
 
 def set_interp_linear(obj) -> None:
-    """Set all keyframes on this object to LINEAR interpolation."""
-    if obj.animation_data and obj.animation_data.action:
-        for fc in obj.animation_data.action.fcurves:
+    """Set all keyframes on this object to LINEAR interpolation.
+
+    Blender 4.x stored fcurves directly on action.fcurves.
+    Blender 5.x uses a layered action system: action.layers[i].strips[j].
+    This function handles both APIs.
+    """
+    if not (obj.animation_data and obj.animation_data.action):
+        return
+    action = obj.animation_data.action
+
+    # --- Blender 5.x layered actions ---
+    if hasattr(action, "layers"):
+        for layer in action.layers:
+            for strip in layer.strips:
+                # Each strip exposes channelbags; each channelbag has fcurves.
+                cb_iter = (strip.channelbags if hasattr(strip, "channelbags")
+                           else getattr(strip, "channelbag", None))
+                if cb_iter is None:
+                    continue
+                for cb in cb_iter:
+                    for fc in cb.fcurves:
+                        for kp in fc.keyframe_points:
+                            kp.interpolation = "LINEAR"
+        return
+
+    # --- Blender 4.x (and earlier) flat fcurves ---
+    if hasattr(action, "fcurves"):
+        for fc in action.fcurves:
             for kp in fc.keyframe_points:
                 kp.interpolation = "LINEAR"
 
