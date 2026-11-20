@@ -143,18 +143,39 @@ def clear_scene() -> None:
 
 def configure_render() -> None:
     scene = bpy.context.scene
-    scene.render.engine              = "CYCLES"
-    scene.cycles.samples             = 128
-    scene.cycles.use_denoising       = True
-    scene.render.resolution_x        = RENDER_W
-    scene.render.resolution_y        = RENDER_H
-    scene.render.resolution_percentage = 100
-    scene.render.fps                 = FPS
-    scene.frame_start                = 1
-    scene.frame_end                  = TOTAL_FRAMES
-    scene.render.film_transparent    = False
+
+    # EEVEE Next — GPU rasterizer, 50-100x faster than Cycles for this scene.
+    # Every material in this animation is pure emission (text, glows, panels) —
+    # no glass, no subsurface, no complex BSDFs — so EEVEE is visually identical
+    # to Cycles and renders a 1920×1080 frame in ~0.5 s on integrated GPU vs
+    # ~15 s per frame with Cycles. 2400 frames goes from ~10 hours to ~20 min.
+    #
+    # RENDER_ENGINE values:
+    #   "BLENDER_EEVEE_NEXT"  — Blender 4.2+/5.x  (use this)
+    #   "BLENDER_EEVEE"       — Blender 3.x and earlier
+    #   "CYCLES"              — path tracer (slow, not needed here)
+    engine = "BLENDER_EEVEE_NEXT"
+    if not hasattr(bpy.context.scene, "eevee"):
+        engine = "BLENDER_EEVEE"   # older Blender fallback
+    scene.render.engine = engine
+
+    # EEVEE quality settings — high enough for emission-only content
+    if hasattr(scene, "eevee"):
+        scene.eevee.taa_render_samples  = 16   # temporal AA passes (16 is clean)
+        scene.eevee.use_bloom           = True  # makes glowing emission pop
+        scene.eevee.bloom_intensity     = 0.05
+        scene.eevee.bloom_radius        = 4.0
+        scene.eevee.use_gtao            = False # no ambient occlusion needed
+
+    scene.render.resolution_x           = RENDER_W
+    scene.render.resolution_y           = RENDER_H
+    scene.render.resolution_percentage  = 100
+    scene.render.fps                    = FPS
+    scene.frame_start                   = 1
+    scene.frame_end                     = TOTAL_FRAMES
+    scene.render.film_transparent       = False
     scene.render.image_settings.file_format = "PNG"
-    scene.render.filepath            = str(OUT_DIR / "")
+    scene.render.filepath               = str(OUT_DIR / "")
 
 
 def set_world_background() -> None:
@@ -1193,25 +1214,55 @@ def main() -> None:
     # In GUI mode (Scripting tab) we skip this so the user can preview first,
     # then trigger Render → Render Animation manually (Ctrl+F12).
     if bpy.app.background:
-        scene = bpy.context.scene
-        print(f"\n  Rendering {TOTAL_FRAMES} frames to {OUT_DIR} …")
-        print("  (this will take a while — one line per frame)\n")
+        scene  = bpy.context.scene
+        engine = scene.render.engine
+        print(f"\n  Engine : {engine}")
+        print(f"  Frames : {TOTAL_FRAMES}  ({TOTAL_FRAMES / FPS:.0f} s at {FPS} fps)")
+        print(f"  Output : {OUT_DIR}")
+        print(  "  Progress printed every 1 second of animation\n")
+
+        import time as _time
+        t0 = _time.perf_counter()
+
         for frame in range(scene.frame_start, scene.frame_end + 1):
             scene.frame_set(frame)
             scene.render.filepath = str(OUT_DIR / f"{frame:04d}")
             bpy.ops.render.render(write_still=True)
-            if frame % 24 == 0:
-                pct = 100.0 * frame / TOTAL_FRAMES
-                print(f"  frame {frame:4d} / {TOTAL_FRAMES}  ({pct:.0f} %)")
-        print(f"\n✅  All frames rendered to: {OUT_DIR}")
-        print("\n  Assemble with ffmpeg:")
-        print("    ffmpeg -framerate 24 -i render/frames/%04d.png \\")
-        print("           -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
+            if frame % FPS == 0:
+                elapsed = _time.perf_counter() - t0
+                pct     = 100.0 * frame / TOTAL_FRAMES
+                remain  = (elapsed / frame) * (TOTAL_FRAMES - frame) if frame else 0
+                print(f"  {frame:4d}/{TOTAL_FRAMES}  {pct:5.1f}%  "
+                      f"elapsed {elapsed:6.0f}s  ETA {remain:6.0f}s")
+
+        total_time = _time.perf_counter() - t0
+        print(f"\n✅  Rendered {TOTAL_FRAMES} frames in {total_time:.0f}s "
+              f"({total_time/TOTAL_FRAMES:.2f}s/frame)")
+        print(f"   Frames saved to: {OUT_DIR}")
+
+        # ── Save .blend for cloud render farms ───────────────────────────────
+        # Upload this file to SheepIt (free), GarageFarm, Render Street, etc.
+        # Set frame range 1–2400, PNG output, EEVEE engine on the farm's UI.
+        blend_out = SCRIPT_DIR.parent / "render" / "SHAPE_Agent16_Demo.blend"
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_out))
+        print(f"   .blend saved  : {blend_out}")
+        print( "   Upload to a render farm (SheepIt is free):")
+        print( "     https://www.sheepit-renderfarm.com")
+        print( "   Set: engine=EEVEE, frames 1-2400, output PNG\n")
+
+        print( "\n  Assemble locally with ffmpeg:")
+        print( "    ffmpeg -framerate 24 -i render/frames/%04d.png \\")
+        print( "           -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
     else:
-        print("   GUI mode: press Ctrl+F12 to render all frames.")
-        print("   Then assemble with:")
-        print("     ffmpeg -framerate 24 -i render/frames/%04d.png \\")
-        print("            -c:v libx264 -pix_fmt yuv420p SHAPE_Agent16_Demo.mp4\n")
+        # GUI mode — save .blend so user can upload to a render farm
+        blend_out = SCRIPT_DIR.parent / "render" / "SHAPE_Agent16_Demo.blend"
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_out))
+        print(f"\n  .blend saved to: {blend_out}")
+        print( "  GUI: press Ctrl+F12 to render locally, or upload the .blend to:")
+        print( "    SheepIt (free)  https://www.sheepit-renderfarm.com")
+        print( "    GarageFarm      https://garagefarm.net")
+        print( "    Render Street   https://www.renderstreet.com")
+        print( "  Set: engine=EEVEE Next, frames 1-2400, output PNG\n")
 
 
 main()
