@@ -174,6 +174,8 @@ def panel_rect(img: Image.Image, x1: int, y1: int, x2: int, y2: int,
     # Operate on a crop sized exactly to the panel.
     px1, py1 = max(0, x1), max(0, y1)
     px2, py2 = min(W, x2), min(H, y2)
+    if px2 <= px1 or py2 <= py1:   # panel is fully off-screen
+        return
     crop = Image.new("RGBA", (px2 - px1, py2 - py1), (0, 0, 0, 0))
     d    = ImageDraw.Draw(crop)
     rx1, ry1 = x1 - px1, y1 - py1
