@@ -193,6 +193,164 @@ All deliverables follow the required convention `TypeOfDeliverable__Group_ITAI23
 
 ---
 
+## 4-Step Episodic Memory Demo Protocol
+
+SHAPE Agent 16 implements a concrete, testable memory lifecycle that mirrors
+how biological memory moves from short-term episodes to durable, consolidated
+recall — without mutating the base model's weights.
+
+### Protocol Overview
+
+```
+Session A (Wake Phase)
+  │
+  ├── log_episode()      ← shape_memory.py
+  │   Facts / prefs / corrections → episodes table
+  │
+  └── [session closes]
+        │
+        ▼
+  Offline Consolidation  ← shape_consolidate.py
+  (run_consolidation / consolidate_all)
+  Score → Filter → Replay → Prune
+        │
+        ▼
+  Cross-Session Recall Probe  ← shape_recall_probe.py
+  (new session, zero preamble)
+  Direct · Implicit · Contradiction
+        │
+        ▼
+  Stability / Anti-Forgetting  ← shape_stability_check.py
+  Capability checks + Policy Q-values + Recall pass-rate
+```
+
+---
+
+### Step 1 — Wake Phase (Episodic Encoding)
+
+**File:** [`src/shape_memory.py`](src/shape_memory.py)
+
+During a session each meaningful turn is logged as an *episode*:
+
+```python
+from shape_memory import log_episode
+
+# Encode a user fact
+log_episode(session_id, learner_id, turn_number=1,
+            episode_type="fact",
+            subject="preferred_language",
+            content="Python",
+            confidence="high")
+
+# Mid-session correction (automatically supersedes the old entry)
+log_episode(session_id, learner_id, turn_number=5,
+            episode_type="correction",
+            subject="preferred_language",
+            content="JavaScript")   # salience auto-set to 1.0
+
+# Distractor / small-talk (low salience, pruned in consolidation)
+log_episode(session_id, learner_id, turn_number=3,
+            episode_type="distractor",
+            subject="weather_comment",
+            content="User mentioned it is raining.")
+```
+
+Each episode carries:
+- `salience` (0 – 1): auto-scored from type, overridable
+- `confidence` (`high` | `medium` | `low`)
+- `contradiction_of`: FK to the episode it supersedes
+
+---
+
+### Step 2 — Offline Consolidation / Replay Pass
+
+**File:** [`src/shape_consolidate.py`](src/shape_consolidate.py)
+
+Run between sessions (cron, APScheduler, end-of-session hook):
+
+```python
+from shape_consolidate import run_consolidation, consolidate_all
+
+# Single learner
+report = run_consolidation("alice")
+print(report.summary())
+
+# All learners with pending episodes
+for report in consolidate_all():
+    print(report.summary())
+```
+
+What it does:
+| Phase | Action |
+|-------|--------|
+| A — Score | Re-evaluate each un-replayed episode |
+| B — Filter | High-salience → replay queue; ephemeral (< 0.2) → prune |
+| C — Replay | Write best-value-per-subject to `distilled_memory` table |
+| D — Prune | Mark superseded / low-salience episodes `replayed=1` |
+
+> **Design principle:** base weights are never mutated.  `distilled_memory`
+> acts as a soft key-value "LoRA adapter" injected at session start.
+
+---
+
+### Step 3 — Cross-Session Recall & Transfer Probe
+
+**File:** [`src/shape_recall_probe.py`](src/shape_recall_probe.py)
+
+Start a fresh session with **zero prompt preamble** and verify three things:
+
+```bash
+# CLI — run all probe types for a learner
+python src/shape_recall_probe.py --learner alice
+
+# Programmatic
+from shape_recall_probe import run_all_probes, print_probe_report
+print_probe_report(run_all_probes("alice"))
+```
+
+| Probe type | What it tests |
+|------------|---------------|
+| `direct` | Distilled memory returns the correct persistent attribute value |
+| `implicit` | High/medium-confidence entry exists and can be injected naturally |
+| `contradiction` | Stale (superseded) values do **not** appear in distilled memory |
+
+---
+
+### Step 4 — Stability / Anti-Forgetting Check
+
+**File:** [`src/shape_stability_check.py`](src/shape_stability_check.py)
+
+Re-run standard capability probes to confirm consolidation didn't degrade
+general agent performance:
+
+```bash
+python src/shape_stability_check.py --learner alice
+```
+
+Checks performed (no API key required):
+- Safety layer blocks injections / passes legit input
+- Python exercise runner executes and blocks correctly
+- RL reward function returns correct values
+- Curriculum retrieval doesn't crash on unknown queries
+- Distilled memory contains no injected/adversarial content
+- RL policy Q-values remain above the floor threshold
+- Cross-session recall pass-rate ≥ 80 %
+
+Overall result is `STABLE` or `UNSTABLE` — suitable for CI/CD gating.
+
+---
+
+### New Database Tables
+
+Two tables are added to `shape.db` (migration-safe — `IF NOT EXISTS`):
+
+| Table | Purpose |
+|-------|---------|
+| `episodes` | Raw episodic log with salience, confidence, contradiction links |
+| `distilled_memory` | Consolidated key-value store (one row per learner × subject) |
+
+---
+
 ## License
 
 For educational use only — Houston Community College ITAI2376.

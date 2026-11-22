@@ -96,6 +96,36 @@ def init_db() -> None:
         n_selected   INTEGER NOT NULL DEFAULT 0,
         q_value      REAL NOT NULL DEFAULT 0.0
     );
+
+    CREATE TABLE IF NOT EXISTS episodes (
+        episode_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id      TEXT    NOT NULL,
+        learner_id      TEXT    NOT NULL,
+        turn_number     INTEGER NOT NULL,
+        episode_type    TEXT    NOT NULL
+            CHECK(episode_type IN ('fact','preference','correction','distractor','skill')),
+        subject         TEXT    NOT NULL,
+        content         TEXT    NOT NULL,
+        salience        REAL    NOT NULL DEFAULT 0.5,
+        confidence      TEXT    NOT NULL DEFAULT 'medium'
+            CHECK(confidence IN ('high','medium','low')),
+        contradiction_of INTEGER REFERENCES episodes(episode_id),
+        superseded      INTEGER NOT NULL DEFAULT 0,
+        replayed        INTEGER NOT NULL DEFAULT 0,
+        timestamp       TEXT    NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS distilled_memory (
+        memory_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        learner_id  TEXT    NOT NULL,
+        subject     TEXT    NOT NULL,
+        content     TEXT    NOT NULL,
+        source_ids  TEXT    NOT NULL DEFAULT '[]',
+        confidence  TEXT    NOT NULL DEFAULT 'high',
+        consolidated_at TEXT NOT NULL,
+        updated_at  TEXT    NOT NULL,
+        UNIQUE(learner_id, subject)
+    );
     """)
     conn.close()
 
